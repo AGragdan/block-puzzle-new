@@ -111,13 +111,48 @@ function getGhostCell() {
     if (!ghost) return { col: 0, row: 0 };
     const l = getLayout();
     const { w } = getShapePixelSize(dragShape, l.cellSize);
+    
     if (dragShape.isHammer) {
         const cellX = Math.floor((ghost.x + w/2 - l.boardX) / l.cellSize);
         const cellY = Math.floor((ghost.y + w/2 - l.boardY) / l.cellSize);
         return { col: cellX - 1, row: cellY - 1 };
     }
-    const { col, row } = pixelToCell(ghost.x, ghost.y);
-    return { col, row };
+
+    // Базовые координаты (по левому верхнему углу)
+    let baseCol = Math.floor((ghost.x - l.boardX) / l.cellSize);
+    let baseRow = Math.floor((ghost.y - l.boardY) / l.cellSize);
+
+    // Если фигура влезает — отлично
+    if (canPlace(dragShape, baseCol, baseRow)) {
+        return { col: baseCol, row: baseRow };
+    }
+
+    // Иначе ищем ближайшую свободную позицию в радиусе 1 клетки
+    let bestCol = baseCol;
+    let bestRow = baseRow;
+    let minDist = Infinity;
+
+    for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+            const testCol = baseCol + dc;
+            const testRow = baseRow + dr;
+            if (canPlace(dragShape, testCol, testRow)) {
+                // Вычисляем расстояние от центра фигуры до центра этой клетки
+                const targetX = l.boardX + testCol * l.cellSize + w / 2;
+                const targetY = l.boardY + testRow * l.cellSize + w / 2; // грубо
+                const dx = (ghost.x + w/2) - targetX;
+                const dy = (ghost.y + w/2) - targetY;
+                const dist = dx*dx + dy*dy;
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestCol = testCol;
+                    bestRow = testRow;
+                }
+            }
+        }
+    }
+
+    return { col: bestCol, row: bestRow };
 }
 
 function updateHighlight() {
