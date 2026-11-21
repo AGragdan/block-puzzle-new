@@ -1,4 +1,4 @@
-import { getGrid } from './core.js';
+import { getGrid, canPlaceAnywhere  } from './core.js';
 import { BOARD_SIZE } from './layout.js';
 
 function rotate90(cells) {
@@ -48,12 +48,11 @@ const BASE_SHAPES = {
     corner3: [[0,0],[0,1],[1,1]],
     complex6: [[0,0],[0,1],[0,2],[1,0],[1,1],[2,0]],
     complex8: [[1,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2],[1,3]],
-    
-    // НОВЫЕ ФИГУРЫ
-    T4: [[1,0],[0,1],[1,1],[2,1]], // Т-образная из 4 клеток (ножка вверх)
-    rect24: [[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1]], // 4x2
-    complex12: [[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[2,2],[3,2],[0,3],[1,3],[2,3],[3,3]], // 1,1,0,0 / 1,1,0,0 / 1,1,1,1 / 1,1,1,1
-    S4: [[0,0],[0,1],[1,1],[1,2]], // Зигзаг из 4 клеток
+    T4: [[1,0],[0,1],[1,1],[2,1]],
+    rect24: [[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1]],
+    complex12: [[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[2,2],[3,2],[0,3],[1,3],[2,3],[3,3]],
+    S4: [[0,0],[0,1],[1,1],[1,2]],
+    bracket6: [[0,0],[1,0],[0,1],[0,2],[0,3],[1,3]],
 };
 
 const SHAPES = [];
@@ -80,9 +79,8 @@ addRotations(BASE_SHAPES.T5, 10, 5, 2);
 addRotations(BASE_SHAPES.P5, 10, 4, 2);
 addRotations(BASE_SHAPES.corner3, 5, 10, 15);
 addRotations(BASE_SHAPES.complex6, 12, 4, 1);
+addRotations(BASE_SHAPES.bracket6, 12, 4, 1);
 addRotations(BASE_SHAPES.complex8, 15, 2, 1);
-
-// Добавляем новые
 addRotations(BASE_SHAPES.T4, 10, 8, 4);
 addRotations(BASE_SHAPES.rect24, 12, 4, 1);
 addRotations(BASE_SHAPES.complex12, 15, 2, 1);
@@ -92,12 +90,14 @@ let queue = [];
 let nextId = 1;
 const QUEUE_MAX = 3;
 
-export const HAMMER_SHAPE = {
-    id: -1,
-    cells: [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]],
-    colorIndex: 0,
-    isHammer: true,
-};
+export function createHammer() {
+    return {
+        id: nextId++,
+        cells: [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]],
+        colorIndex: 0,
+        isHammer: true,
+    };
+}
 
 function getFillRatio() {
     const grid = getGrid();
@@ -139,7 +139,7 @@ function pickShape() {
     return {
         id: nextId++,
         cells: chosen.cells,
-        colorIndex: Math.floor(Math.random() * 5),
+        colorIndex: Math.floor(Math.random() * 7),
     };
 }
 
@@ -159,10 +159,38 @@ export function removeAt(index) {
 
 export function replaceWithHammer(index) {
     if (index >= 0 && index < queue.length) {
-        queue[index] = { ...HAMMER_SHAPE, id: nextId++ };
+        queue[index] = createHammer();
     }
 }
 
 export function resetQueue() {
-    initQueue(); // Просто пересоздаем очередь
+    initQueue();
+}
+
+// Гарантированная фигура «второго шанса»: максимально большая по числу клеток
+// среди тех, что можно поставить на текущее поле. Без эффектов и надписей.
+// Встаёт в крайне правый слот (queue[QUEUE_MAX - 1]), въезжая справа как обычная фигура.
+export function giveGuaranteedShape() {
+    const candidates = SHAPES.filter(s => canPlaceAnywhere(s));
+    if (candidates.length === 0) return false;
+
+    let maxCells = 0;
+    for (const s of candidates) {
+        if (s.cells.length > maxCells) maxCells = s.cells.length;
+    }
+    const best = candidates.filter(s => s.cells.length === maxCells);
+    const chosen = best[Math.floor(Math.random() * best.length)];
+
+    const shape = {
+        id: nextId++,
+        cells: chosen.cells,
+        colorIndex: Math.floor(Math.random() * 7),
+    };
+
+    if (queue.length === 0) {
+        queue.push(shape);
+    } else {
+        queue[QUEUE_MAX - 1] = shape;
+    }
+    return true;
 }

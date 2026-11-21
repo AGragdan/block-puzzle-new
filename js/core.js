@@ -123,6 +123,7 @@ export function clearLines(rows, cols) {
 }
 
 export function canPlaceShape(shape, col, row) {
+    if (shape.isHammer) return true;
     for (const [dc, dr] of shape.cells) {
         const c = col + dc;
         const r = row + dr;
@@ -133,7 +134,7 @@ export function canPlaceShape(shape, col, row) {
 }
 
 export function canPlaceAnywhere(shape) {
-    if (shape.isHammer) return true; // молоток можно "поставить" всегда
+    if (shape.isHammer) return true;
     for (let r = 0; r < BOARD_SIZE; r++) {
         for (let c = 0; c < BOARD_SIZE; c++) {
             if (canPlaceShape(shape, c, r)) return true;
@@ -152,7 +153,6 @@ export function getTotalScore() { return totalScore; }
 export function getBestScore() { return bestScore; }
 export function getComboLines() { return comboLines; }
 
-// Загрузка рекорда при старте
 export function loadBestScore() {
     const saved = localStorage.getItem('blockPuzzleBest');
     if (saved) {
@@ -160,18 +160,19 @@ export function loadBestScore() {
     }
 }
 
-// Сохранение рекорда
 function saveBestScore() {
     localStorage.setItem('blockPuzzleBest', String(bestScore));
 }
 
 const SPECIAL_REWARDS = [
-    { name: 'СУПЕР', points: 300 },
-    { name: 'МЕГА', points: 500 },
-    { name: 'УЛЬТРА', points: 1000 },
-    { name: 'ПЕРФЕКТО', points: 3000 },
-    { name: 'УЛЬТИМА', points: 5000 },
-    { name: 'ТАНОС', points: 10000 },
+    { name: 'СУПЕР',    points: 100 },    // comboLines = 3
+    { name: 'МЕГА',     points: 200 },    // comboLines = 4
+    { name: 'УЛЬТРА',   points: 500 },    // comboLines = 5
+    { name: 'ХИТ',      points: 1000 },   // comboLines = 6
+    { name: 'ПЕРФЕКТО', points: 3000 },   // comboLines = 7
+    { name: 'УЛЬТИМА',  points: 5000 },   // comboLines = 8
+    { name: 'РЕКОРД',   points: 10000 },  // comboLines = 9
+    { name: 'ТАНОС',    points: 50000 },  // comboLines = 10+
 ];
 
 export function awardPoints(cellsToPlace, linesCleared, removedCount) {
@@ -194,30 +195,43 @@ export function awardPoints(cellsToPlace, linesCleared, removedCount) {
         comboActive = true;
         
         comboText = comboLines === linesCleared ? 'ЛИНИЯ' : 'КОМБО';
-        bonusPoints = 100 * (comboLines - 1);
+        bonusPoints = 10 * (comboLines - 1);
 
         if (comboLines >= 3) {
-            const index = Math.min(comboLines - 3, SPECIAL_REWARDS.length - 1);
-            const reward = SPECIAL_REWARDS[index];
+            const index = comboLines;
+            const reward = SPECIAL_REWARDS[index - 3];
             specialActive = true;
             specialText = reward.name;
             specialPoints = reward.points;
+            console.log(reward.points);
+            
         }
     } else {
         comboLines = 0;
     }
 
-    const gained = base * multiplier + bonusPoints + specialPoints;
+    const gained = base * multiplier + bonusPoints + specialPoints; // <-- ВОТ ЗДЕСЬ
 
     totalScore += gained;
-    if (totalScore > bestScore) bestScore = totalScore;
-    saveBestScore(); // <-- сохраняем при обновлении рекорда
+    if (totalScore > bestScore) {
+        bestScore = totalScore;
+        saveBestScore();
+    }
 
     return {
-        base, multiplier, gained, bonusPoints,
-        specialActive, specialText, specialPoints,
-        comboLines, comboActive, comboText,
-        scoredCells, totalScore, bestScore,
+        base,
+        multiplier,
+        gained,
+        bonusPoints,
+        specialActive,
+        specialText,
+        specialPoints,
+        comboLines,
+        comboActive,
+        comboText,
+        scoredCells,
+        totalScore,
+        bestScore,
     };
 }
 
@@ -227,7 +241,6 @@ let hasHammer = false;
 export function getHasHammer() { return hasHammer; }
 export function setHasHammer(value) { hasHammer = value; }
 
-// Проверяет, есть ли хоть один ход (не считая молотка)
 export function isGameStuck(queue) {
     for (const shape of queue) {
         if (shape.isHammer) continue;
@@ -236,7 +249,6 @@ export function isGameStuck(queue) {
     return true;
 }
 
-// Очищает область 3x3
 export function clearArea3x3(centerCol, centerRow) {
     const removed = [];
     for (let r = centerRow - 1; r <= centerRow + 1; r++) {
@@ -252,28 +264,110 @@ export function clearArea3x3(centerCol, centerRow) {
     return removed;
 }
 
-export function fillTest() {
-    for (let c = 0; c < BOARD_SIZE; c++) setCell(c, 0, 1);
-}
-
-// Проверка на конец игры (нет ходов и нет молотка)
+// ---------------- КОНЕЦ ИГРЫ ----------------
 export function isGameOver(queue) {
-    // Если молоток есть - игра не окончена (можно использовать)
     if (hasHammer) return false;
-    
-    // Если хоть одна фигура встает - игра не окончена
+
     for (const shape of queue) {
         if (shape.isHammer) continue;
         if (canPlaceAnywhere(shape)) return false;
     }
-    
+
     return true;
 }
 
-// Сброс игры
 export function resetGame() {
     totalScore = 0;
     comboLines = 0;
     hasHammer = false;
-    initBoard(); // Пересоздаем поле
+    initBoard();
+}
+
+// ---------------- СПАСЕНИЕ ИГРЫ ----------------
+export function findRescueCells(queue) {
+    // 1. Собираем фигуры из очереди (без молотка)
+    const shapes = queue.filter(s => !s.isHammer);
+    if (shapes.length === 0) return [];
+
+    // 2. Создаём "виртуальное" пустое поле
+    const tempGrid = [];
+    for (let r = 0; r < BOARD_SIZE; r++) {
+        tempGrid.push(new Array(BOARD_SIZE).fill(0));
+    }
+
+    // 3. Пытаемся разместить каждую фигуру на пустом поле
+    const placements = []; // { shape, col, row, cells: [{col, row}] }
+
+    for (const shape of shapes) {
+        let placed = false;
+
+        // Пробуем много раз, чтобы найти место (на пустом поле всегда есть)
+        for (let attempt = 0; attempt < 100 && !placed; attempt++) {
+            // Случайная позиция
+            const maxC = BOARD_SIZE - Math.max(...shape.cells.map(c => c[0])) - 1;
+            const maxR = BOARD_SIZE - Math.max(...shape.cells.map(c => c[1])) - 1;
+            if (maxC < 0 || maxR < 0) continue;
+
+            const col = Math.floor(Math.random() * (maxC + 1));
+            const row = Math.floor(Math.random() * (maxR + 1));
+
+            // Проверяем, что все клетки свободны в tempGrid
+            let canPlace = true;
+            const cells = [];
+            for (const [dc, dr] of shape.cells) {
+                const c = col + dc;
+                const r = row + dr;
+                if (c < 0 || c >= BOARD_SIZE || r < 0 || r >= BOARD_SIZE) {
+                    canPlace = false;
+                    break;
+                }
+                if (tempGrid[r][c] !== 0) {
+                    canPlace = false;
+                    break;
+                }
+                cells.push({ col: c, row: r });
+            }
+
+            if (canPlace) {
+                // Ставим фигуру на виртуальное поле
+                for (const cell of cells) {
+                    tempGrid[cell.row][cell.col] = 1;
+                }
+                placements.push({ shape, col, row, cells });
+                placed = true;
+            }
+        }
+
+        if (!placed) {
+            // Не смогли разместить (маловероятно на пустом поле)
+            return [];
+        }
+    }
+
+    // 4. Теперь у нас есть placements — три фигуры на виртуальном поле.
+    //    Собираем все клетки, которые они занимают.
+    const cellsToClear = new Set();
+    for (const p of placements) {
+        for (const cell of p.cells) {
+            cellsToClear.add(`${cell.col},${cell.row}`);
+        }
+    }
+
+    // 5. Проходим по реальному полю и собираем клетки, которые надо очистить
+    const rescued = [];
+    for (const key of cellsToClear) {
+        const [c, r] = key.split(',').map(Number);
+        if (grid[r][c] !== 0) {
+            rescued.push({ col: c, row: r, val: grid[r][c] });
+            grid[r][c] = 0; // Очищаем сразу
+        }
+    }
+
+    return rescued;
+}
+
+export function fillTest() {
+    for (let c = 0; c < BOARD_SIZE; c++) setCell(c, 0, 1);
+    setCell(3, 4, 2);
+    setCell(4, 4, 2);
 }

@@ -1,12 +1,13 @@
-import { Graphics } from 'https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.mjs';
+import { Graphics } from '../libs/pixi.min.mjs';
 import { app, queueLayer, drawHighlight, clearHighlight, getShapeColor, getCellColor, drawQueue } from './render.js';
-import { getLayout, pixelToCell, BOARD_SIZE, QUEUE_SLOTS } from './layout.js';
+import { getLayout, pixelToCell, cellToPixel, BOARD_SIZE, QUEUE_SLOTS } from './layout.js';
 import { getAt, removeAt, getQueue, replaceWithHammer } from './pieces.js';
 import { getCell, setCell, findFullLines, clearLines, awardPoints, wouldClearLines, getHasHammer, setHasHammer, isGameStuck, clearArea3x3, getComboLines } from './core.js';
 import { blockDie, floatText, addTextToQueue, flashCells, screenShake, screenFlash, burstParticles, shockwave } from './effects.js';
 import { getCurrentTheme } from './theme.js';
 import { EFFECTS } from './settings_effects/index.js';
 import { isGameOverVisible } from './ui.js';
+import { playPlace, playLine, playCombo, playHammer } from './sound.js';
 
 let ghost = null;
 let dragging = false;
@@ -325,6 +326,7 @@ export function initDrag(onPlaced) {
             const centerCol = col + 1;
             const centerRow = row + 1;
             const removed = clearArea3x3(centerCol, centerRow);
+            playHammer(); // <-- Звук использования молотка
             
             const l = getLayout();
             for (const cell of removed) {
@@ -347,6 +349,7 @@ export function initDrag(onPlaced) {
         }
 
         if (canPlace(dragShape, col, row)) {
+            playPlace(); // <-- Звук установки
             const cellValue = dragShape.colorIndex + 1;
             const placedCells = [];
             for (const [dc, dr] of dragShape.cells) {
@@ -371,9 +374,14 @@ export function initDrag(onPlaced) {
 
             // Выдаем молоток
             if ((rows.length > 0 && cols.length > 0) || willGetSpecial) {
+                const hadHammer = getHasHammer(); // Проверяем, был ли уже молоток
                 setHasHammer(true);
-                const l = getLayout();
-                floatText(l.boardX + l.boardPixelSize/2, l.boardY + l.boardPixelSize/2, "МОЛОТОК!", 0xFF33FF);
+                if (!hadHammer) {
+                    playHammer(); // <-- Звук молотка
+                    // Показываем надпись только если молотка не было
+                    const l = getLayout();
+                    floatText(l.boardX + l.boardPixelSize/2, l.boardY + l.boardPixelSize/2, "МОЛОТОК!", 0xffaa00);
+                }
             }
 
             const colorsBefore = [];
@@ -398,6 +406,15 @@ export function initDrag(onPlaced) {
 
             const result = awardPoints(placedCells, lineCount, removedCount);
 
+                        // --- ЗВУКИ ---
+            if (lineCount > 0) {
+                playLine(); // Звук линии
+                if (result.comboActive) {
+                    playCombo(result.comboLines); // Звук комбо
+                }
+            }
+            // -----------
+
             flashCells(result.scoredCells, getCurrentTheme().flashCells.color);
 
             for (const cell of colorsBefore) {
@@ -415,7 +432,18 @@ export function initDrag(onPlaced) {
             }
             const floatX = l.boardX + ((minC + maxC + 1) / 2) * l.cellSize;
             const floatY = l.boardY + minR * l.cellSize - l.cellSize * 0.4;
-            
+
+            // +1 с каждой клетки, за которую начислены очки
+            for (const cell of result.scoredCells) {
+                const { x, y } = cellToPixel(cell.col, cell.row);
+                const cx = x + l.cellSize / 2;
+                const cy = y + l.cellSize / 2;
+                const delay = Math.random() * 250;
+                setTimeout(() => {
+                    floatText(cx, cy, '+1', 0xffffff, 0.4, 0.2);   // <-- шестой аргумент
+                }, delay);
+            }
+
             // 1. Очки за установку
             floatText(floatX, floatY, `+${result.gained}`, getCurrentTheme().floatColor);
 
@@ -433,29 +461,43 @@ export function initDrag(onPlaced) {
                 );
                 textDelay += 400;
 
-                if (result.specialActive) {
-                    addTextToQueue(
-                        `${result.specialText}!`,
-                        0xff3366,
-                        'special',
-                        textDelay
-                    );
-                    textDelay += 400;
-                    
-                    addTextToQueue(
-                        `+${result.specialPoints}`,
-                        0xffd700,
-                        'bonus',
-                        textDelay,
-                        { zone: Math.floor(Math.random() * 5) }
-                    );
-                    textDelay += 400;
-                }
+if (result.specialActive) {
+    // Выбираем цвет в зависимости от уровня
+    let specialColor = 0x00BFFF; // По умолчанию (СУПЕР)
+    switch (result.specialText) {
+        case 'СУПЕР':    specialColor = 0x00BFFF; break; // Голубой
+        case 'МЕГА':     specialColor = 0x00FA9A; break; // Зелёный
+        case 'УЛЬТРА':   specialColor = 0xFF8C00; break; // Оранжевый
+        case 'ХИТ':      specialColor = 0xFFD700; break; // Золотой
+        case 'ПЕРФЕКТО': specialColor = 0xFF4500; break; // Красный
+        case 'УЛЬТИМА':  specialColor = 0xFF1493; break; // Розовый
+        case 'РЕКОРД':   specialColor = 0xFFFFFF; break; // Белый
+        case 'ТАНОС':    specialColor = 0x9400D3; break; // Фиолетовый
+    }
+    
+    addTextToQueue(
+        `${result.specialText}!`,
+        specialColor,
+        'special',
+        textDelay
+    );
+    textDelay += 400;
+
+    // НОВОЕ: отдельная надпись с суммой спецприза
+    addTextToQueue(
+        `+${result.specialPoints}`,
+        specialColor,
+        'bonus',
+        textDelay,
+        { zone: Math.floor(Math.random() * 5) }
+    );
+    textDelay += 400;
+}
 
                 if (result.bonusPoints > 0) {
                     addTextToQueue(
                         `+${result.bonusPoints}`,
-                        0xffd700,
+                        0xFFD54F, // <-- Было 0xffd700, стало жёлтым
                         'bonus',
                         textDelay,
                         { zone: Math.floor(Math.random() * 5) }

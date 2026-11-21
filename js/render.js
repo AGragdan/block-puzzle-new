@@ -1,4 +1,4 @@
-import { Application, Graphics, Container, FillGradient } from 'https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.mjs';
+import { Application, Graphics, Container, FillGradient } from '../libs/pixi.min.mjs';
 import { BOARD_SIZE, QUEUE_SLOTS, getLayout, cellToPixel } from './layout.js';
 import { getGrid, getHasHammer, canPlaceAnywhere } from './core.js';
 import { getQueue } from './pieces.js';
@@ -72,7 +72,7 @@ export function drawBackground() {
 }
 
 export function getShapeColor(shape) {
-    if (shape.isHammer) return 0xffaa00; // Молоток всегда золотой
+    if (shape.isHammer) return 0xffaa00;
     const palette = getCurrentTheme().palette;
     return palette[shape.colorIndex % palette.length] || palette[0];
 }
@@ -93,7 +93,13 @@ function lerpColor(a, b, t) {
 
 function drawBlock(gfx, x, y, size, color, theme) {
     const b = theme.block || {};
-    const r = b.cornerRadius || 6;
+    // Если cornerRadius — дробное (0..0.5), умножаем на размер.
+    // Если целое (например, 6), используем как есть (для обратной совместимости).
+    let r = b.cornerRadius !== undefined ? b.cornerRadius : 6;
+    if (r <= 0.5) {
+        r = size * r;
+    }
+    
     const alpha = b.alpha !== undefined ? b.alpha : 1;
 
     if (b.shadow) {
@@ -111,10 +117,14 @@ function drawBlock(gfx, x, y, size, color, theme) {
 
     if (b.bevel) {
         const bevelH = size * 0.15;
+        const light = b.bevelLight || { color: 0xffffff, alpha: 0.15 };
+        const dark = b.bevelDark || { color: 0x000000, alpha: 0.1 };
+        
         gfx.roundRect(x + 3, y + 2, size - 6, bevelH, Math.max(2, r - 3));
-        gfx.fill({ color: 0xffffff, alpha: 0.15 });
+        gfx.fill({ color: light.color, alpha: light.alpha });
+        
         gfx.roundRect(x + 3, y + size - bevelH - 2, size - 6, bevelH, Math.max(2, r - 3));
-        gfx.fill({ color: 0x000000, alpha: 0.1 });
+        gfx.fill({ color: dark.color, alpha: dark.alpha });
     }
 
     if (b.edgeHighlight) {
@@ -176,19 +186,15 @@ function renderShapeInContainer(container, shape, cellSize, color, alpha) {
     const theme = getCurrentTheme();
 
     if (shape.isHammer) {
-        // Цветные квадраты под молотком
-        const bgColor = theme.palette[0]; // Первый цвет темы
-        
+        const bgColor = theme.palette[0];
         for (let r = 0; r < 3; r++) {
             for (let c = 0; c < 3; c++) {
                 const g = new Graphics();
                 drawBlock(g, c * cellSize - cellSize * 1.5 + 2, r * cellSize - cellSize * 1.5 + 2, cellSize - 4, bgColor, theme);
-                g.alpha = 0.6; // Полупрозрачность, чтобы молоток выделялся
+                g.alpha = 0.6;
                 container.addChild(g);
             }
         }
-        
-        // Молоток поверх
         const h = new Graphics();
         drawHammer(h, -cellSize * 1.5, -cellSize * 1.5, cellSize * 3);
         container.addChild(h);
@@ -229,14 +235,17 @@ export function drawQueue() {
         if (!shape) continue;
 
         const target = getSlotTarget(i);
-        const canPlace = canPlaceAnywhere(shape);
-        
-        let color = getShapeColor(shape); 
+
+        // Молоток всегда цветной, не проверяем canPlaceAnywhere
+        let color = getShapeColor(shape);
         let alpha = target.alpha;
-        
-        if (!canPlace && !shape.isHammer) {
-            color = 0x555555;
-            alpha = 0.5;
+
+        if (!shape.isHammer) {
+            const canPlace = canPlaceAnywhere(shape);
+            if (!canPlace) {
+                color = 0x555555;
+                alpha = 0.5;
+            }
         }
 
         let c = shapeContainers.get(shape.id);
@@ -304,20 +313,19 @@ export function drawBoard() {
             if (val === 0) continue;
             const { x, y } = cellToPixel(c, r);
             const block = new Graphics();
-            
+
             let color = getCellColor(val);
-            
+
             if (blockFlickerActive && flickerPhase === 1) {
                 const seed = (c * 7 + r * 13) % 10;
                 if (seed < 4) color = 0xffffff;
             }
-            
-            // ВОЛНА СЕРОСТИ (плавная)
+
             const grayFactor = getGrayFactor(r);
             if (grayFactor > 0) {
                 color = lerpColor(color, 0x555555, grayFactor);
             }
-            
+
             drawBlock(block, x + 2, y + 2, l.cellSize - 4, color, theme);
             boardLayer.addChild(block);
         }
@@ -329,7 +337,7 @@ export function drawHighlight(shape, col, row, mode, lines) {
     if (!shape) return;
     const l = getLayout();
     const theme = getCurrentTheme();
-    
+
     if (shape.isHammer) {
         for (let r = -1; r <= 1; r++) {
             for (let c = -1; c <= 1; c++) {

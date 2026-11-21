@@ -1,4 +1,4 @@
-import { Graphics, Text } from 'https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.mjs';
+import { Graphics, Text } from '../libs/pixi.min.mjs';
 import { app, effectsLayer, floatLayer, boardLayer } from './render.js';
 import { getLayout, cellToPixel } from './layout.js';
 import { getCurrentTheme } from './theme.js';
@@ -265,13 +265,14 @@ export function flashCells(cells, color = 0xffffff) {
 // ---------- НОВАЯ СИСТЕМА НАДПИСЕЙ ----------
 
 // +X (летит вверх от фигуры) — без изменений
-export function floatText(x, y, text, color = 0xffffff) {
+// +X (летит вверх от фигуры) — без изменений
+export function floatText(x, y, text, color = 0xffffff, sizeScale = 0.85, riseScale = 1) {
     const l = getLayout();
     const t = new Text({
         text,
         style: {
             fontFamily: 'Pacifico',
-            fontSize: l.cellSize * 0.85,
+            fontSize: l.cellSize * sizeScale,
             fill: color,
             dropShadow: {
                 color: 0x000000,
@@ -294,7 +295,7 @@ export function floatText(x, y, text, color = 0xffffff) {
 
     const topLimit = l.boardY - l.cellSize * 0.5;
     const maxRise = Math.max(0, y - topLimit);
-    const riseDist = Math.min(l.cellSize * 2.2, maxRise);
+    const riseDist = Math.min(l.cellSize * 2.2, maxRise) * riseScale;   // <-- умножаем
 
     floaters.push({
         gfx: t,
@@ -369,6 +370,7 @@ export function addTextToQueue(text, color, type, delay, extra = {}) {
     });
 }
 
+
 // Обновление очереди текстов
 function updateTextQueue() {
     const now = performance.now();
@@ -380,11 +382,18 @@ function updateTextQueue() {
         
         if (!item.gfx) {
             const l = getLayout();
+            
+            // Разный размер для разных типов надписей
+            let fontSize = l.cellSize * 1.0;
+            if (item.type === 'special') {
+                fontSize = l.cellSize * 1.6; // Спецпризы крупнее
+            }
+
             const t = new Text({
                 text: item.text,
                 style: {
                     fontFamily: 'Pacifico',
-                    fontSize: l.cellSize * 1.0,
+                    fontSize: fontSize,
                     fill: item.color,
                     align: 'center',
                     dropShadow: {
@@ -400,13 +409,13 @@ function updateTextQueue() {
             t.x = item.x;
             t.y = item.y;
             t.alpha = 0;
-            t.scale.set(0.8); // <-- Начальный размер больше
+            t.scale.set(0.8);
             floatLayer.addChild(t);
             item.gfx = t;
         }
         
         const elapsed = now - item.startTime;
-        const t = elapsed / item.duration; // item.duration теперь 1200
+        const t = elapsed / item.duration;
         
         if (t >= 1) {
             floatLayer.removeChild(item.gfx);
@@ -418,10 +427,8 @@ function updateTextQueue() {
         // Анимация: быстрый "поп" (первые 20% времени), потом плавное уменьшение
         let scale;
         if (t < 0.2) {
-            // Быстрый рост от 0.8 до 1.3 за 240 мс
             scale = 0.8 + (1.3 - 0.8) * (t / 0.2);
         } else {
-            // Медленное уменьшение от 1.3 до 1.0 (чтобы не исчезало резко)
             const localT = (t - 0.2) / 0.8;
             scale = 1.3 - 0.3 * localT;
         }
