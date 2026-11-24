@@ -6,7 +6,7 @@ import { getCell, setCell, findFullLines, clearLines, awardPoints, wouldClearLin
 import { blockDie, floatText, addTextToQueue, flashCells, screenShake, screenFlash, burstParticles, shockwave } from './effects.js';
 import { getCurrentTheme } from './theme.js';
 import { EFFECTS } from './settings_effects/index.js';
-import { isGameOverVisible } from './ui.js';
+import { isGameOverVisible, animateHammerToPanel } from './ui.js';
 import { playPlace, playLine, playCombo, playHammer } from './sound.js';
 
 let ghost = null;
@@ -28,6 +28,12 @@ let riseStartTime = 0;
 
 let pointerX = 0;
 let pointerY = 0;
+
+// --- Порог движения (вариант A) ---
+let downX = 0;
+let downY = 0;
+let moved = false;
+const DRAG_THRESHOLD = 10; // пикселей
 
 const LIFT = 60;
 const RETURN_DURATION = 200;
@@ -112,23 +118,20 @@ function getGhostCell() {
     if (!ghost) return { col: 0, row: 0 };
     const l = getLayout();
     const { w } = getShapePixelSize(dragShape, l.cellSize);
-    
+
     if (dragShape.isHammer) {
-        const cellX = Math.floor((ghost.x + w/2 - l.boardX) / l.cellSize);
-        const cellY = Math.floor((ghost.y + w/2 - l.boardY) / l.cellSize);
+        const cellX = Math.floor((ghost.x + w / 2 - l.boardX) / l.cellSize);
+        const cellY = Math.floor((ghost.y + w / 2 - l.boardY) / l.cellSize);
         return { col: cellX - 1, row: cellY - 1 };
     }
 
-    // Базовые координаты (по левому верхнему углу)
     let baseCol = Math.floor((ghost.x - l.boardX) / l.cellSize);
     let baseRow = Math.floor((ghost.y - l.boardY) / l.cellSize);
 
-    // Если фигура влезает — отлично
     if (canPlace(dragShape, baseCol, baseRow)) {
         return { col: baseCol, row: baseRow };
     }
 
-    // Иначе ищем ближайшую свободную позицию в радиусе 1 клетки
     let bestCol = baseCol;
     let bestRow = baseRow;
     let minDist = Infinity;
@@ -138,12 +141,11 @@ function getGhostCell() {
             const testCol = baseCol + dc;
             const testRow = baseRow + dr;
             if (canPlace(dragShape, testCol, testRow)) {
-                // Вычисляем расстояние от центра фигуры до центра этой клетки
                 const targetX = l.boardX + testCol * l.cellSize + w / 2;
-                const targetY = l.boardY + testRow * l.cellSize + w / 2; // грубо
-                const dx = (ghost.x + w/2) - targetX;
-                const dy = (ghost.y + w/2) - targetY;
-                const dist = dx*dx + dy*dy;
+                const targetY = l.boardY + testRow * l.cellSize + w / 2;
+                const dx = (ghost.x + w / 2) - targetX;
+                const dy = (ghost.y + w / 2) - targetY;
+                const dist = dx * dx + dy * dy;
                 if (dist < minDist) {
                     minDist = dist;
                     bestCol = testCol;
@@ -162,14 +164,14 @@ function updateHighlight() {
         return;
     }
     const { col, row } = getGhostCell();
-    
+
     if (dragShape.isHammer) {
         drawHighlight(dragShape, col + 1, row + 1, 'valid');
         return;
     }
 
     const overBoard = col > -BOARD_SIZE && col < BOARD_SIZE * 2
-                   && row > -BOARD_SIZE && row < BOARD_SIZE * 2;
+        && row > -BOARD_SIZE && row < BOARD_SIZE * 2;
     if (!overBoard) {
         clearHighlight();
         return;
@@ -277,6 +279,10 @@ export function initDrag(onPlaced) {
         pointerX = e.global.x;
         pointerY = e.global.y;
 
+        downX = e.global.x;
+        downY = e.global.y;
+        moved = false;
+
         const l = getLayout();
         const color = shape.isHammer ? 0xffaa00 : getShapeColor(shape);
         ghost = createGhost(shape, l.cellSize, color);
@@ -295,6 +301,15 @@ export function initDrag(onPlaced) {
         if (!dragging) return;
         pointerX = e.global.x;
         pointerY = e.global.y;
+
+        if (!moved) {
+            const dx = pointerX - downX;
+            const dy = pointerY - downY;
+            if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+                moved = true;
+            }
+        }
+
         if (rising) {
             const pos = getGhostPos(pointerX, pointerY);
             riseTargetX = pos.x;
@@ -309,6 +324,21 @@ export function initDrag(onPlaced) {
 
     app.stage.on('pointerup', (e) => {
         if (!dragging) return;
+
+        if (!moved) {
+            dragging = false;
+            rising = false;
+            clearHighlight();
+            animateReturn(() => {
+                queueLayer.removeChild(ghost);
+                ghost.destroy();
+                ghost = null;
+                dragIndex = -1;
+                dragShape = null;
+            });
+            return;
+        }
+
         if (rising) {
             rising = false;
             const pos = getGhostPos(pointerX, pointerY);
@@ -326,19 +356,19 @@ export function initDrag(onPlaced) {
             const centerCol = col + 1;
             const centerRow = row + 1;
             const removed = clearArea3x3(centerCol, centerRow);
-            playHammer(); // <-- Звук использования молотка
-            
+            playHammer();
+
             const l = getLayout();
             for (const cell of removed) {
                 blockDie(cell.col, cell.row, getCellColor(cell.val));
             }
             screenShake(12, 400);
             screenFlash(0xffffff, 0.5, 400);
-            burstParticles(l.boardX + l.boardPixelSize/2, l.boardY + l.boardPixelSize/2, 0xffaa00, 40, 20);
-            
+            burstParticles(l.boardX + l.boardPixelSize / 2, l.boardY + l.boardPixelSize / 2, 0xffaa00, 40, 20);
+
             setHasHammer(false);
             removeAt(dragIndex);
-            
+
             queueLayer.removeChild(ghost);
             ghost.destroy();
             ghost = null;
@@ -349,7 +379,7 @@ export function initDrag(onPlaced) {
         }
 
         if (canPlace(dragShape, col, row)) {
-            playPlace(); // <-- Звук установки
+            playPlace();
             const cellValue = dragShape.colorIndex + 1;
             const placedCells = [];
             for (const [dc, dr] of dragShape.cells) {
@@ -358,12 +388,10 @@ export function initDrag(onPlaced) {
                 setCell(c, r, cellValue);
                 placedCells.push([c, r]);
             }
-            removeAt(dragIndex);
 
             const { rows, cols } = findFullLines();
             const lineCount = rows.length + cols.length;
-            
-            // Проверяем, дадут ли спецприз
+
             let willGetSpecial = false;
             if (lineCount > 0) {
                 const tempComboLines = getComboLines() + lineCount;
@@ -372,15 +400,12 @@ export function initDrag(onPlaced) {
                 }
             }
 
-            // Выдаем молоток
             if ((rows.length > 0 && cols.length > 0) || willGetSpecial) {
-                const hadHammer = getHasHammer(); // Проверяем, был ли уже молоток
+                const hadHammer = getHasHammer();
                 setHasHammer(true);
                 if (!hadHammer) {
-                    playHammer(); // <-- Звук молотка
-                    // Показываем надпись только если молотка не было
-                    const l = getLayout();
-                    floatText(l.boardX + l.boardPixelSize/2, l.boardY + l.boardPixelSize/2, "МОЛОТОК!", 0xffaa00);
+                    playHammer();
+                    animateHammerToPanel();
                 }
             }
 
@@ -404,16 +429,16 @@ export function initDrag(onPlaced) {
                 removedCount = removed.length;
             }
 
+            // awardPoints обновляет comboLines — важно сделать это ДО removeAt,
+            // чтобы добивка ленты увидела актуальный comboLines и включила подыгрывание
             const result = awardPoints(placedCells, lineCount, removedCount);
 
-                        // --- ЗВУКИ ---
             if (lineCount > 0) {
-                playLine(); // Звук линии
+                playLine();
                 if (result.comboActive) {
-                    playCombo(result.comboLines); // Звук комбо
+                    playCombo(result.comboLines);
                 }
             }
-            // -----------
 
             flashCells(result.scoredCells, getCurrentTheme().flashCells.color);
 
@@ -433,26 +458,23 @@ export function initDrag(onPlaced) {
             const floatX = l.boardX + ((minC + maxC + 1) / 2) * l.cellSize;
             const floatY = l.boardY + minR * l.cellSize - l.cellSize * 0.4;
 
-            // +1 с каждой клетки, за которую начислены очки
             for (const cell of result.scoredCells) {
                 const { x, y } = cellToPixel(cell.col, cell.row);
                 const cx = x + l.cellSize / 2;
                 const cy = y + l.cellSize / 2;
                 const delay = Math.random() * 250;
                 setTimeout(() => {
-                    floatText(cx, cy, '+1', 0xffffff, 0.4, 0.2);   // <-- шестой аргумент
+                    floatText(cx, cy, '+1', 0xffffff, 0.4, 0.2);
                 }, delay);
             }
 
-            // 1. Очки за установку
             floatText(floatX, floatY, `+${result.gained}`, getCurrentTheme().floatColor);
 
-            // 2. Надписи (ЛИНИЯ / КОМБО / СУПЕР и т.д.)
             let textDelay = 400;
             if (result.comboActive) {
                 const isMultiLine = lineCount > 1;
                 const word = isMultiLine ? 'КОМБО' : result.comboText;
-                
+
                 addTextToQueue(
                     `${word}! Х${result.multiplier}`,
                     getCurrentTheme().floatColor,
@@ -461,43 +483,41 @@ export function initDrag(onPlaced) {
                 );
                 textDelay += 400;
 
-if (result.specialActive) {
-    // Выбираем цвет в зависимости от уровня
-    let specialColor = 0x00BFFF; // По умолчанию (СУПЕР)
-    switch (result.specialText) {
-        case 'СУПЕР':    specialColor = 0x00BFFF; break; // Голубой
-        case 'МЕГА':     specialColor = 0x00FA9A; break; // Зелёный
-        case 'УЛЬТРА':   specialColor = 0xFF8C00; break; // Оранжевый
-        case 'ХИТ':      specialColor = 0xFFD700; break; // Золотой
-        case 'ПЕРФЕКТО': specialColor = 0xFF4500; break; // Красный
-        case 'УЛЬТИМА':  specialColor = 0xFF1493; break; // Розовый
-        case 'РЕКОРД':   specialColor = 0xFFFFFF; break; // Белый
-        case 'ТАНОС':    specialColor = 0x9400D3; break; // Фиолетовый
-    }
-    
-    addTextToQueue(
-        `${result.specialText}!`,
-        specialColor,
-        'special',
-        textDelay
-    );
-    textDelay += 400;
+                if (result.specialActive) {
+                    let specialColor = 0x00BFFF;
+                    switch (result.specialText) {
+                        case 'СУПЕР':    specialColor = 0x00BFFF; break;
+                        case 'МЕГА':     specialColor = 0x00FA9A; break;
+                        case 'УЛЬТРА':   specialColor = 0xFF8C00; break;
+                        case 'ХИТ':      specialColor = 0xFFD700; break;
+                        case 'ПЕРФЕКТО': specialColor = 0xFF4500; break;
+                        case 'УЛЬТИМА':  specialColor = 0xFF1493; break;
+                        case 'РЕКОРД':   specialColor = 0xFFFFFF; break;
+                        case 'ТАНОС':    specialColor = 0x9400D3; break;
+                    }
 
-    // НОВОЕ: отдельная надпись с суммой спецприза
-    addTextToQueue(
-        `+${result.specialPoints}`,
-        specialColor,
-        'bonus',
-        textDelay,
-        { zone: Math.floor(Math.random() * 5) }
-    );
-    textDelay += 400;
-}
+                    addTextToQueue(
+                        `${result.specialText}!`,
+                        specialColor,
+                        'special',
+                        textDelay
+                    );
+                    textDelay += 400;
+
+                    addTextToQueue(
+                        `+${result.specialPoints}`,
+                        specialColor,
+                        'bonus',
+                        textDelay,
+                        { zone: Math.floor(Math.random() * 5) }
+                    );
+                    textDelay += 400;
+                }
 
                 if (result.bonusPoints > 0) {
                     addTextToQueue(
                         `+${result.bonusPoints}`,
-                        0xFFD54F, // <-- Было 0xffd700, стало жёлтым
+                        0xFFD54F,
                         'bonus',
                         textDelay,
                         { zone: Math.floor(Math.random() * 5) }
@@ -505,7 +525,6 @@ if (result.specialActive) {
                 }
             }
 
-            // 3. СПЕЦЭФФЕКТЫ (вибрации, вспышки, частицы)
             if (result.specialActive) {
                 const fx = EFFECTS[result.specialText];
                 if (fx) {
@@ -524,6 +543,9 @@ if (result.specialActive) {
                     if (fx.extra) fx.extra();
                 }
             }
+
+            // Перенесено сюда: добивка ленты теперь видит обновлённый comboLines
+            removeAt(dragIndex);
 
             queueLayer.removeChild(ghost);
             ghost.destroy();

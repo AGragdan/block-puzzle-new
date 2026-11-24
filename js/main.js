@@ -19,6 +19,7 @@ import {
 import { initUI, drawUI, uiLayer, showGameOver, hideGameOver } from './ui.js';
 import { getCurrentTheme } from './theme.js';
 import { initYSDK, gameReady, showRewardAd, showInterstitial } from './ysdk.js';
+import { initScene, checkIntroComplete } from './intro.js';
 
 async function loadFont() {
     const font = new FontFace('Pacifico', 'url(fonts/russo_one.ttf)');
@@ -33,13 +34,12 @@ async function loadFont() {
 
 async function start() {
     await loadFont();
-        initSound();
+    initSound();
     await initYSDK();
 
     await initRender();
-    initBoard();
     loadBestScore();
-    initQueue();
+    initScene();
 
     updateLayout(app.screen.width, app.screen.height);
     drawBackground();
@@ -49,18 +49,18 @@ async function start() {
     initEffects();
 
     let justRescued = false;
-    let rescueAdUsed = false; // Флаг: реклама за молоток использована в этой игре
-    let guaranteedGiven = 0;  // Сколько гарантированных фигур выдано в текущей серии застревания (0..3)
+    let rescueAdUsed = false;
+    let guaranteedGiven = 0;
 
     const onRestart = () => {
-        // Показываем интерстишл, потом начинаем новую игру
         showInterstitial(() => {
             hideGameOver();
             resetGame();
             resetQueue();
             justRescued = false;
-            rescueAdUsed = false; // Сбрасываем флаг для новой игры
-            guaranteedGiven = 0;  // Сбрасываем серию гарантированных фигур
+            rescueAdUsed = false;
+            guaranteedGiven = 0;
+            initScene();
             drawBoard();
             drawQueue();
             drawUI();
@@ -69,16 +69,13 @@ async function start() {
     };
 
     const onRescue = () => {
-        // Если реклама уже использована в этой игре — игнорируем
         if (rescueAdUsed) return;
 
-        // Вызываем рекламу
         showRewardAd(
             () => {
-                // Успех: даём молоток
-                rescueAdUsed = true; // Запоминаем, что использовал
+                rescueAdUsed = true;
                 hideGameOver();
-                
+
                 const queue = getQueue();
                 let hasHammerInQueue = false;
                 for (const shape of queue) {
@@ -87,11 +84,11 @@ async function start() {
                         break;
                     }
                 }
-                
+
                 if (!hasHammerInQueue && queue.length > 0) {
                     replaceWithHammer(0);
                 }
-                
+
                 justRescued = true;
                 drawBoard();
                 drawQueue();
@@ -114,7 +111,7 @@ async function start() {
             replaceWithHammer(0);
             drawQueue();
         }
-        
+
         if (justRescued) {
             let hasHammerInQueue = false;
             for (const shape of queue) {
@@ -128,9 +125,8 @@ async function start() {
             }
             justRescued = false;
         }
-        
+
         if (isGameOver(queue)) {
-            // «Второй шанс»: до 3 гарантированных фигур подряд, если молотка нет и реклама уже израсходована
             if (!getHasHammer() && rescueAdUsed && guaranteedGiven < 2) {
                 guaranteedGiven++;
                 giveGuaranteedShape();
@@ -138,13 +134,12 @@ async function start() {
                 return;
             }
 
-            playGameOver(); // <-- Звук проигрыша
+            playGameOver();
             startGrayWave();
             setTimeout(() => {
                 showGameOver(getTotalScore(), !rescueAdUsed);
             }, 1500);
         } else {
-            // Ходы появились — серия застревания прервана
             guaranteedGiven = 0;
         }
     };
@@ -155,6 +150,7 @@ async function start() {
         drawBoard();
         drawQueue();
         drawUI();
+        checkIntroComplete();
         checkStuck();
     });
 
@@ -166,12 +162,12 @@ async function start() {
             drawBoard();
             resetBlockFlickerEnded();
         }
-        
+
         if (isGrayWaveActive()) {
             updateGrayWave();
             drawBoard();
         }
-        
+
         const bgChanged = updateBackgroundEffect();
         if (bgChanged) {
             drawBackground();

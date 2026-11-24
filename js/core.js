@@ -98,6 +98,19 @@ export function wouldClearLines(shape, col, row) {
     return result;
 }
 
+// Может ли фигура закрыть хотя бы одну линию на текущем поле (в любой позиции)
+export function shapeCanClearLine(shape) {
+    if (!shape || shape.isHammer) return false;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            if (!canPlaceShape(shape, c, r)) continue;
+            const { rows, cols } = wouldClearLines(shape, c, r);
+            if (rows.length + cols.length > 0) return true;
+        }
+    }
+    return false;
+}
+
 export function clearLines(rows, cols) {
     const removed = new Set();
     for (const r of rows) {
@@ -164,7 +177,7 @@ function saveBestScore() {
     localStorage.setItem('blockPuzzleBest', String(bestScore));
 }
 
-const SPECIAL_REWARDS = [
+export const SPECIAL_REWARDS = [
     { name: 'СУПЕР',    points: 100 },    // comboLines = 3
     { name: 'МЕГА',     points: 200 },    // comboLines = 4
     { name: 'УЛЬТРА',   points: 500 },    // comboLines = 5

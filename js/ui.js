@@ -1,37 +1,138 @@
 import { Container, Text, Graphics } from '../libs/pixi.min.mjs';
 import { app } from './render.js';
 import { getLayout } from './layout.js';
-import { getTotalScore, getBestScore, getHasHammer } from './core.js';
+import { getTotalScore, getBestScore, getHasHammer, getComboLines, SPECIAL_REWARDS } from './core.js';
 
 export const uiLayer = new Container();
 
 let scoreText = null;
 let bestText = null;
 let hammerIcon = null;
+let panelBg = null;
+let comboText = null;
+let comboLabel = '';
+let comboTween = null;
 let gameOverLayer = null;
 let gameOverCallback = null;
 let rescueCallback = null;
 
 let displayScore = 0;
 let targetDisplayScore = 0;
+let uiTickerAdded = false;
 
 export function initUI(onRestart, onRescue) {
     gameOverCallback = onRestart;
     rescueCallback = onRescue;
-    app.stage.addChild(uiLayer);
+
+    if (!uiLayer.parent) app.stage.addChild(uiLayer);
+    uiLayer.removeChildren();
+
     buildUI();
     buildGameOverScreen();
+
+    if (!uiTickerAdded) {
+        app.ticker.add(animateUI);
+        uiTickerAdded = true;
+    }
+}
+
+export function animateHammerToPanel() {
+    if (!hammerIcon) return;
+    const l = getLayout();
+
+    const big = new Container();
+    const bigSize = l.cellSize * 3.5;
+    const g = new Graphics();
+    g.roundRect(bigSize * 0.4, bigSize * 0.3, bigSize * 0.2, bigSize * 0.6, bigSize * 0.1);
+    g.fill(0x8B4513);
+    g.roundRect(bigSize * 0.1, bigSize * 0.1, bigSize * 0.8, bigSize * 0.3, bigSize * 0.1);
+    g.fill(0xffaa00);
+    g.roundRect(bigSize * 0.15, bigSize * 0.12, bigSize * 0.7, bigSize * 0.08, bigSize * 0.04);
+    g.fill({ color: 0xffffff, alpha: 0.5 });
+    big.addChild(g);
+
+    big.pivot.set(bigSize / 2, bigSize / 2);
+    big.x = l.screenW / 2;
+    big.y = l.screenH / 2;
+    big.scale.set(0);
+    big.alpha = 0;
+    uiLayer.addChild(big);
+
+    const startX = l.screenW / 2;
+    const startY = l.screenH / 2;
+    const endX = hammerIcon.x;
+    const endY = hammerIcon.y;
+    const endScale = (l.cellSize * 0.8) / bigSize;
+
+    const t0 = performance.now();
+    const POP_IN = 120;
+    const SETTLE = 100;
+    const FLY = 450;
+    const BUMP = 80;
+    const total = POP_IN + SETTLE + FLY + BUMP;
+
+    const tick = () => {
+        const now = performance.now();
+        const elapsed = now - t0;
+        const t = Math.min(elapsed / total, 1);
+
+        if (elapsed < POP_IN) {
+            const k = elapsed / POP_IN;
+            big.scale.set(1.2 * k);
+            big.alpha = k;
+            return;
+        }
+        if (elapsed < POP_IN + SETTLE) {
+            const k = (elapsed - POP_IN) / SETTLE;
+            big.scale.set(1.2 - 0.2 * k);
+            big.alpha = 1;
+            return;
+        }
+        if (elapsed < POP_IN + SETTLE + FLY) {
+            const k = (elapsed - POP_IN - SETTLE) / FLY;
+            const e = k < 0.5
+                ? 2 * k * k
+                : 1 - Math.pow(-2 * k + 2, 2) / 2;
+            big.x = startX + (endX - startX) * e;
+            big.y = startY + (endY - startY) * e;
+            big.scale.set(1 + (endScale - 1) * e);
+            return;
+        }
+        const k = (elapsed - POP_IN - SETTLE - FLY) / BUMP;
+        const s = endScale * (1 + 0.15 * Math.sin(k * Math.PI));
+        big.scale.set(s);
+
+        if (t >= 1) {
+            uiLayer.removeChild(big);
+            big.destroy({ children: true });
+            app.ticker.remove(tick);
+        }
+    };
+
+    app.ticker.add(tick);
 }
 
 function buildUI() {
     const l = getLayout();
 
-    // Крупный счёт
+    // --- Панель HUD (по ширине поля) ---
+    const panelMargin = l.cellSize * 0.4;
+    const panelH = l.cellSize * 1.8;
+    const panelY = panelMargin;
+    const panelX = l.boardX - panelMargin;
+    const panelW = l.boardPixelSize + panelMargin * 2;
+
+    panelBg = new Graphics();
+    panelBg.roundRect(panelX, panelY, panelW, panelH, panelH * 0.3);
+    panelBg.fill({ color: 0x000000, alpha: 0.18 });
+    uiLayer.addChild(panelBg);
+
+    // Крупный счёт (по центру панели)
     scoreText = new Text({
         text: '0',
         style: {
             fontFamily: 'Pacifico',
-            fontSize: l.cellSize * 1.2,
+            fontSize: l.cellSize * 1.1,
             fill: 0xffffff,
             align: 'center',
             fontWeight: 'bold',
@@ -45,16 +146,16 @@ function buildUI() {
         },
     });
     scoreText.anchor.set(0.5, 0.5);
-    scoreText.x = l.boardX + l.boardPixelSize / 2;
-    scoreText.y = l.boardY * 0.65;
+    scoreText.x = panelX + panelW / 2;
+    scoreText.y = panelY + panelH / 2;
     uiLayer.addChild(scoreText);
 
-    // Рекорд
+    // Рекорд (слева в панели)
     bestText = new Text({
         text: 'Рекорд: 0',
         style: {
             fontFamily: 'Pacifico',
-            fontSize: l.cellSize * 0.4,
+            fontSize: l.cellSize * 0.3,
             fill: 0xffffff,
             align: 'left',
             fontWeight: 'bold',
@@ -67,12 +168,12 @@ function buildUI() {
             },
         },
     });
-    bestText.anchor.set(0, 0);
-    bestText.x = l.boardX;
-    bestText.y = l.boardY * 0.15;
+    bestText.anchor.set(0, 0.5);
+    bestText.x = panelX + l.cellSize * 0.3;
+    bestText.y = panelY + panelH * 0.22;
     uiLayer.addChild(bestText);
 
-    // Иконка молотка
+    // Иконка молотка (слева под рекордом)
     hammerIcon = new Container();
     const iconSize = l.cellSize * 0.8;
 
@@ -86,49 +187,68 @@ function buildUI() {
 
     hammerIcon.addChild(hg);
 
-    hammerIcon.x = l.boardX + iconSize * 0.5;
-    hammerIcon.y = l.boardY * 0.65;
+    hammerIcon.x = panelX + l.cellSize * 0.3 + iconSize * 0.5;
+    hammerIcon.y = panelY + panelH * 0.72;
     hammerIcon.pivot.set(iconSize * 0.5, iconSize * 0.5);
     hammerIcon.alpha = 0;
     uiLayer.addChild(hammerIcon);
+
+    // Индикатор комбо (справа в панели)
+    comboText = new Text({
+        text: '',
+        style: {
+            fontFamily: 'Pacifico',
+            fontSize: l.cellSize * 0.6,
+            fill: 0xFFD54F,
+            align: 'right',
+            dropShadow: {
+                color: 0x000000,
+                alpha: 0.5,
+                blur: 3,
+                distance: 1,
+                angle: Math.PI / 4,
+            },
+        },
+    });
+    comboText.anchor.set(1, 0.5);
+    comboText.x = panelX + panelW - l.cellSize * 0.3;
+    comboText.y = panelY + panelH / 2;
+    comboText.visible = false;
+    uiLayer.addChild(comboText);
+
+    comboLabel = '';
+    comboTween = null;
 
     displayScore = getTotalScore();
     targetDisplayScore = getTotalScore();
     scoreText.text = String(Math.round(displayScore));
     bestText.text = 'Рекорд: ' + getBestScore();
-
-    app.ticker.add(animateUI);
 }
 
 function buildGameOverScreen() {
     const l = getLayout();
-    
+
     gameOverLayer = new Container();
     gameOverLayer.visible = false;
-    
+
     const fieldCenterX = l.boardX + l.boardPixelSize / 2;
     const fieldWidth = l.boardPixelSize;
     const fieldCenterY = l.boardY + l.boardPixelSize / 2;
-    
-    // 1. Затемнение (полупрозрачное, в тон)
+
     const overlay = new Graphics();
     overlay.rect(0, 0, l.screenW, l.screenH);
-    overlay.fill({ color: 0x1a1a2e, alpha: 0.85 }); // Тёмно-фиолетовый, не чёрный
+    overlay.fill({ color: 0x1a1a2e, alpha: 0.85 });
     gameOverLayer.addChild(overlay);
-    
-    // 2. Круглая панель (белая, с тенью)
+
     const panelRadius = fieldWidth * 0.45;
     const panel = new Graphics();
-    // Тень
     panel.circle(fieldCenterX + 4, fieldCenterY + 4, panelRadius);
     panel.fill({ color: 0x000000, alpha: 0.3 });
-    // Сама панель
     panel.circle(fieldCenterX, fieldCenterY, panelRadius);
     panel.fill(0xffffff);
     panel.stroke({ color: 0xffaa00, width: 4 });
     gameOverLayer.addChild(panel);
-    
-    // 3. Заголовок "ОЙ!"
+
     const title = new Text({
         text: 'ОЙ!',
         style: {
@@ -149,8 +269,7 @@ function buildGameOverScreen() {
     title.x = fieldCenterX;
     title.y = fieldCenterY - panelRadius * 0.55;
     gameOverLayer.addChild(title);
-    
-    // 4. Подзаголовок "Места больше нет"
+
     const subtitle = new Text({
         text: 'Места больше нет',
         style: {
@@ -164,8 +283,7 @@ function buildGameOverScreen() {
     subtitle.x = fieldCenterX;
     subtitle.y = fieldCenterY - panelRadius * 0.3;
     gameOverLayer.addChild(subtitle);
-    
-    // 5. Счёт (крупно, с золотым цветом)
+
     const scoreLabel = new Text({
         text: 'ВАШ СЧЁТ',
         style: {
@@ -179,7 +297,7 @@ function buildGameOverScreen() {
     scoreLabel.x = fieldCenterX;
     scoreLabel.y = fieldCenterY - panelRadius * 0.05;
     gameOverLayer.addChild(scoreLabel);
-    
+
     const scoreValue = new Text({
         text: '0',
         style: {
@@ -201,21 +319,18 @@ function buildGameOverScreen() {
     scoreValue.y = fieldCenterY + panelRadius * 0.15;
     gameOverLayer.addChild(scoreValue);
     gameOverLayer._scoreValue = scoreValue;
-    
-    // 6. Кнопка "ИГРАТЬ СНОВА" (крупная, зелёная, с тенью)
+
     const btn = new Container();
     const btnWidth = fieldWidth * 0.65;
     const btnHeight = fieldWidth * 0.13;
     const btnBg = new Graphics();
-    // Тень
     btnBg.roundRect(-btnWidth / 2 + 3, -btnHeight / 2 + 3, btnWidth, btnHeight, btnHeight / 2);
     btnBg.fill({ color: 0x000000, alpha: 0.2 });
-    // Кнопка
     btnBg.roundRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, btnHeight / 2);
-    btnBg.fill(0x4caf50); // Зелёный
+    btnBg.fill(0x4caf50);
     btnBg.stroke({ color: 0xffffff, width: 3 });
     btn.addChild(btnBg);
-    
+
     const btnText = new Text({
         text: 'ИГРАТЬ СНОВА',
         style: {
@@ -234,34 +349,30 @@ function buildGameOverScreen() {
     });
     btnText.anchor.set(0.5);
     btn.addChild(btnText);
-    
+
     btn.x = fieldCenterX;
     btn.y = fieldCenterY + panelRadius * 0.55;
     btn.eventMode = 'static';
     btn.cursor = 'pointer';
-    
+
     btn.on('pointerdown', (e) => e.stopPropagation());
     btn.on('pointerup', (e) => {
         e.stopPropagation();
         if (gameOverCallback) gameOverCallback();
     });
     gameOverLayer.addChild(btn);
-    
-    // 7. Кнопка "ПОЛУЧИТЬ МОЛОТОК" (оранжевая, с иконкой play)
+
     const rescueBtn = new Container();
     const rescueWidth = fieldWidth * 0.65;
     const rescueHeight = fieldWidth * 0.13;
     const rescueBg = new Graphics();
-    // Тень
     rescueBg.roundRect(-rescueWidth / 2 + 3, -rescueHeight / 2 + 3, rescueWidth, rescueHeight, rescueHeight / 2);
     rescueBg.fill({ color: 0x000000, alpha: 0.2 });
-    // Кнопка
     rescueBg.roundRect(-rescueWidth / 2, -rescueHeight / 2, rescueWidth, rescueHeight, rescueHeight / 2);
     rescueBg.fill(0xffaa00);
     rescueBg.stroke({ color: 0xffffff, width: 3 });
     rescueBtn.addChild(rescueBg);
-    
-    // Иконка play
+
     const iconSize = rescueHeight * 0.4;
     const iconX = -rescueWidth / 2 + rescueHeight * 0.6;
     const playIcon = new Graphics();
@@ -270,7 +381,7 @@ function buildGameOverScreen() {
     playIcon.lineTo(iconX, iconSize / 2);
     playIcon.fill(0x000000);
     rescueBtn.addChild(playIcon);
-    
+
     const rescueText = new Text({
         text: 'ПОЛУЧИТЬ МОЛОТОК',
         style: {
@@ -290,20 +401,19 @@ function buildGameOverScreen() {
     rescueText.anchor.set(0.5);
     rescueText.x = iconSize * 0.8;
     rescueBtn.addChild(rescueText);
-    
+
     rescueBtn.x = fieldCenterX;
     rescueBtn.y = fieldCenterY + panelRadius * 0.55 + btnHeight * 1.3;
     rescueBtn.eventMode = 'static';
     rescueBtn.cursor = 'pointer';
-    
+
     rescueBtn.on('pointerdown', (e) => e.stopPropagation());
     rescueBtn.on('pointerup', (e) => {
         e.stopPropagation();
         if (rescueCallback) rescueCallback();
     });
     gameOverLayer.addChild(rescueBtn);
-    
-    // 8. Подпись "Доступно один раз"
+
     const rescueHint = new Text({
         text: 'Доступно один раз',
         style: {
@@ -317,25 +427,24 @@ function buildGameOverScreen() {
     rescueHint.x = fieldCenterX;
     rescueHint.y = rescueBtn.y + rescueHeight * 0.7;
     gameOverLayer.addChild(rescueHint);
-    
+
     gameOverLayer._rescueBtn = rescueBtn;
     gameOverLayer._rescueHint = rescueHint;
-    
+
     uiLayer.addChild(gameOverLayer);
 }
 
 export function showGameOver(score, canRescue) {
     if (!gameOverLayer) return;
     gameOverLayer._scoreValue.text = String(score);
-    
-    // Показываем или скрываем кнопку "Получить молоток" и подпись
+
     if (gameOverLayer._rescueBtn) {
         gameOverLayer._rescueBtn.visible = canRescue;
     }
     if (gameOverLayer._rescueHint) {
         gameOverLayer._rescueHint.visible = canRescue;
     }
-    
+
     gameOverLayer.visible = true;
 }
 
@@ -368,10 +477,42 @@ function animateUI() {
             hammerIcon.alpha = 0;
         }
     }
+
+    if (comboText && comboText.visible && comboTween) {
+        const t = Math.min((performance.now() - comboTween.startTime) / comboTween.duration, 1);
+        let s;
+        if (t < 0.5) s = 0.6 + (1.15 - 0.6) * (t / 0.5);
+        else s = 1.15 - 0.15 * ((t - 0.5) / 0.5);
+        comboText.scale.set(s);
+        if (t >= 1) {
+            comboText.scale.set(1);
+            comboTween = null;
+        }
+    }
 }
 
 export function drawUI() {
     if (!scoreText) return;
     targetDisplayScore = getTotalScore();
     bestText.text = 'Рекорд: ' + getBestScore();
+
+    const combo = getComboLines();
+    let label = '';
+    if (combo === 2) label = 'КОМБО';
+    else if (combo >= 3) {
+        const reward = SPECIAL_REWARDS[combo - 3];
+        if (reward) label = reward.name;
+    }
+
+    if (comboText) {
+        if (label === '') {
+            comboText.visible = false;
+            comboLabel = '';
+        } else if (label !== comboLabel) {
+            comboLabel = label;
+            comboText.text = label;
+            comboText.visible = true;
+            comboTween = { startTime: performance.now(), duration: 250 };
+        }
+    }
 }

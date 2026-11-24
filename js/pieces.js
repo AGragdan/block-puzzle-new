@@ -1,4 +1,4 @@
-import { getGrid, canPlaceAnywhere  } from './core.js';
+import { getGrid, canPlaceAnywhere, getComboLines, shapeCanClearLine } from './core.js';
 import { BOARD_SIZE } from './layout.js';
 
 function rotate90(cells) {
@@ -53,6 +53,9 @@ const BASE_SHAPES = {
     complex12: [[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[2,2],[3,2],[0,3],[1,3],[2,3],[3,3]],
     S4: [[0,0],[0,1],[1,1],[1,2]],
     bracket6: [[0,0],[1,0],[0,1],[0,2],[0,3],[1,3]],
+    H8: [[0,0],[3,0],[0,1],[1,1],[2,1],[3,1],[0,2],[3,2]],
+    step8: [[0,0],[1,0],[0,1],[1,1],[1,2],[2,2],[1,3],[2,3]],
+    snake6: [[1,0],[0,1],[1,1],[2,2],[3,2],[2,3]],
 };
 
 const SHAPES = [];
@@ -85,10 +88,14 @@ addRotations(BASE_SHAPES.T4, 10, 8, 4);
 addRotations(BASE_SHAPES.rect24, 12, 4, 1);
 addRotations(BASE_SHAPES.complex12, 15, 2, 1);
 addRotations(BASE_SHAPES.S4, 10, 8, 5);
+addRotations(BASE_SHAPES.H8, 8, 4, 2);
+addRotations(BASE_SHAPES.step8, 8, 4, 2);
+addRotations(BASE_SHAPES.snake6, 10, 5, 3);
 
 let queue = [];
 let nextId = 1;
 const QUEUE_MAX = 3;
+let allowComboAssist = false;
 
 export function createHammer() {
     return {
@@ -111,6 +118,24 @@ function getFillRatio() {
 }
 
 function pickShape() {
+    // Подыгрывание: серия комбо жива (comboLines >= 3), и в ленте нет фигуры,
+    // которая может закрыть хотя бы одну линию. С шансом 50% выдаём такую фигуру.
+    if (allowComboAssist && getComboLines() >= 3) {
+        const queueHas = queue.some(s => !s.isHammer && shapeCanClearLine(s));
+        if (!queueHas) {
+            const candidates = SHAPES.filter(s => shapeCanClearLine(s));
+            if (candidates.length > 0 && Math.random() < 1.0) {
+                const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                allowComboAssist = false; // одна подмена за ход
+                return {
+                    id: nextId++,
+                    cells: chosen.cells,
+                    colorIndex: Math.floor(Math.random() * 7),
+                };
+            }
+        }
+    }
+
     const fill = getFillRatio();
     let zone = 1;
     let blend = 0;
@@ -146,6 +171,7 @@ function pickShape() {
 export function initQueue() {
     queue = [];
     nextId = 1;
+    allowComboAssist = false;
     while (queue.length < QUEUE_MAX) queue.push(pickShape());
 }
 
@@ -154,7 +180,9 @@ export function getAt(index) { return queue[index]; }
 
 export function removeAt(index) {
     queue.splice(index, 1);
+    allowComboAssist = true;
     while (queue.length < QUEUE_MAX) queue.push(pickShape());
+    allowComboAssist = false;
 }
 
 export function replaceWithHammer(index) {
