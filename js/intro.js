@@ -5,22 +5,23 @@ import { initQueue, getQueue } from './pieces.js';
 import { getCurrentTheme } from './theme.js';
 
 // ---------- Стартовая сцена ----------
-// 1 — заполнено, 0 — пусто. Цвета берутся из палитры темы.
+// 1 — заполнено (голубой), 0 — пусто.
 const INTRO_BOARD = [
-    [0,1,1,1,0,0,0,0],
-    [0,0,1,0,0,0,1,0],
-    [0,0,0,1,0,0,1,0],
-    [1,1,1,1,0,0,1,1],
-    [1,0,0,0,0,0,0,0],
-    [0,1,0,0,1,1,1,1],
-    [0,1,1,1,0,1,0,0],
-    [1,1,1,0,0,0,0,0],
+    [0,0,1,0,0,1,0,0],
+    [0,0,1,1,1,1,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,1,1,1,1,0,0],
+    [0,0,1,0,0,1,0,0],
+    [0,0,1,0,0,1,0,0],
 ];
 
+// Три квадрата 3×3, цвет — «красный» из палитры (colorIndex = 5 → 0xEF5350 в paper)
 const INTRO_QUEUE = [
-    { cells: [[0,0],[1,0],[0,1],[1,1]], colorIndex: 0 }, // квадрат 2×2
-    { cells: [[0,0],[1,0],[2,0],[2,1]], colorIndex: 1 }, // «П» 3×2
-    { cells: [[0,0],[1,0],[2,0],[3,0]], colorIndex: 2 }, // линия 4
+    { cells: [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]], colorIndex: 5 },
+    { cells: [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]], colorIndex: 5 },
+    { cells: [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]], colorIndex: 5 },
 ];
 
 const INTRO_KEY = 'blockPuzzleIntroDone';
@@ -35,8 +36,6 @@ function markIntroDone() {
     localStorage.setItem(INTRO_KEY, '1');
 }
 
-// Инициализация сцены: либо стартовая (если ещё не пройдена), либо обычная.
-// Возвращает true, если применена стартовая сцена.
 export function initScene() {
     if (isIntroDone()) {
         initBoard();
@@ -45,14 +44,12 @@ export function initScene() {
         return false;
     }
 
-    // Заполняем поле сценой
+    // Заполняем поле сценой (все блоки голубые — colorIndex 2 → val 3)
     initBoard();
     for (let r = 0; r < INTRO_BOARD.length; r++) {
         for (let c = 0; c < INTRO_BOARD[r].length; c++) {
             if (INTRO_BOARD[r][c]) {
-                // Группируем цвета: цвет зависит от «фигуры», к которой относится клетка.
-                // Простое правило: по (c + r) % 6, чтобы соседние клетки часто совпадали.
-                setCell(c, r, ((c * 3 + r * 2) % 6) + 1);
+                setCell(c, r, 3); // 3 → palette[2] = голубой
             }
         }
     }
@@ -77,8 +74,6 @@ export function initScene() {
     return true;
 }
 
-// Проверка: все ли стартовые фигуры разыграны (их больше нет в ленте).
-// Вызывать после каждого хода.
 export function checkIntroComplete() {
     if (!introActive) return;
     const q = getQueue();
@@ -91,7 +86,6 @@ export function checkIntroComplete() {
 
 export function isIntroActive() { return introActive; }
 
-// Заглушки для совместимости с drag.js (интро больше не блокирует игру)
 export function getIntroTarget() { return null; }
 export function onIntroDragStart() {}
 export function onIntroReturned() {}
