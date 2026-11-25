@@ -16,6 +16,11 @@ let gameOverLayer = null;
 let gameOverCallback = null;
 let rescueCallback = null;
 
+// --- Новый рекорд ---
+let recordStar = null;
+let recordHighlightEnd = 0;
+let recordTween = null;
+
 let displayScore = 0;
 let targetDisplayScore = 0;
 let uiTickerAdded = false;
@@ -132,7 +137,7 @@ function buildUI() {
         text: '0',
         style: {
             fontFamily: 'Pacifico',
-            fontSize: l.cellSize * 1.1,
+            fontSize: l.cellSize * 0.95,
             fill: 0xffffff,
             align: 'center',
             fontWeight: 'bold',
@@ -170,8 +175,29 @@ function buildUI() {
     });
     bestText.anchor.set(0, 0.5);
     bestText.x = panelX + l.cellSize * 0.3;
-    bestText.y = panelY + panelH * 0.22;
+    bestText.y = panelY + panelH * 0.15;
     uiLayer.addChild(bestText);
+
+    // Звезда нового рекорда (скрыта по умолчанию)
+    recordStar = new Text({
+        text: '★',
+        style: {
+            fontFamily: 'Pacifico',
+            fontSize: l.cellSize * 0.35,
+            fill: 0xFFD54F,
+            align: 'left',
+            dropShadow: {
+                color: 0x000000,
+                alpha: 0.5,
+                blur: 2,
+                distance: 1,
+                angle: Math.PI / 4,
+            },
+        },
+    });
+    recordStar.anchor.set(0, 0.5);
+    recordStar.visible = false;
+    uiLayer.addChild(recordStar);
 
     // Иконка молотка (слева под рекордом)
     hammerIcon = new Container();
@@ -193,12 +219,12 @@ function buildUI() {
     hammerIcon.alpha = 0;
     uiLayer.addChild(hammerIcon);
 
-    // Индикатор комбо (справа в панели)
+    // Индикатор комбо (справа в панели) — уменьшенный шрифт + ограничение ширины
     comboText = new Text({
         text: '',
         style: {
             fontFamily: 'Pacifico',
-            fontSize: l.cellSize * 0.6,
+            fontSize: l.cellSize * 0.4,
             fill: 0xFFD54F,
             align: 'right',
             dropShadow: {
@@ -214,6 +240,8 @@ function buildUI() {
     comboText.x = panelX + panelW - l.cellSize * 0.3;
     comboText.y = panelY + panelH / 2;
     comboText.visible = false;
+    comboText._maxWidth = panelW * 0.32;
+    comboText._fitScale = 1;
     uiLayer.addChild(comboText);
 
     comboLabel = '';
@@ -456,6 +484,78 @@ export function isGameOverVisible() {
     return gameOverLayer && gameOverLayer.visible;
 }
 
+export function showNewRecord() {
+    if (!bestText) return;
+    const l = getLayout();
+
+    // 1. Звезда + подсветка рекорда на 3 секунды
+    if (recordStar) {
+        recordStar.visible = true;
+        recordStar.alpha = 0;
+        recordStar.scale.set(0.5);
+        recordStar.x = bestText.x + bestText.width + l.cellSize * 0.12;
+        recordStar.y = bestText.y;
+    }
+    recordHighlightEnd = performance.now() + 3000;
+    recordTween = { startTime: performance.now(), duration: 400 };
+
+    // 2. Крупная надпись в центре
+    const centerX = l.screenW / 2;
+    const centerY = l.screenH * 0.35;
+
+    const big = new Text({
+        text: 'НОВЫЙ РЕКОРД!',
+        style: {
+            fontFamily: 'Pacifico',
+            fontSize: l.cellSize * 1.0,
+            fill: 0xFFD54F,
+            align: 'center',
+            dropShadow: {
+                color: 0x000000,
+                alpha: 0.6,
+                blur: 6,
+                distance: 2,
+                angle: Math.PI / 4,
+            },
+        },
+    });
+    big.anchor.set(0.5);
+    big.x = centerX;
+    big.y = centerY;
+    big.scale.set(0);
+    big.alpha = 0;
+    uiLayer.addChild(big);
+
+    const startTime = performance.now();
+    const total = 1800;
+
+    const tick = () => {
+        const now = performance.now();
+        const elapsed = now - startTime;
+        const t = elapsed / total;
+        if (t >= 1) {
+            uiLayer.removeChild(big);
+            big.destroy();
+            app.ticker.remove(tick);
+            return;
+        }
+        if (t < 0.2) {
+            const k = t / 0.2;
+            big.scale.set(1.15 * k);
+            big.alpha = k;
+        } else if (t < 0.75) {
+            big.scale.set(1.15 - 0.15 * ((t - 0.2) / 0.55));
+            big.alpha = 1;
+        } else {
+            const k = (t - 0.75) / 0.25;
+            big.alpha = 1 - k;
+            big.y = centerY - l.cellSize * 1.5 * k;
+            big.scale.set(1 + 0.2 * k);
+        }
+    };
+    app.ticker.add(tick);
+}
+
 function animateUI() {
     if (Math.abs(targetDisplayScore - displayScore) < 0.5) {
         displayScore = targetDisplayScore;
@@ -478,15 +578,46 @@ function animateUI() {
         }
     }
 
-    if (comboText && comboText.visible && comboTween) {
-        const t = Math.min((performance.now() - comboTween.startTime) / comboTween.duration, 1);
-        let s;
-        if (t < 0.5) s = 0.6 + (1.15 - 0.6) * (t / 0.5);
-        else s = 1.15 - 0.15 * ((t - 0.5) / 0.5);
-        comboText.scale.set(s);
-        if (t >= 1) {
-            comboText.scale.set(1);
-            comboTween = null;
+    if (comboText && comboText.visible) {
+        const base = comboText._fitScale || 1;
+        if (comboTween) {
+            const t = Math.min((performance.now() - comboTween.startTime) / comboTween.duration, 1);
+            let s;
+            if (t < 0.5) s = 0.6 + (1.15 - 0.6) * (t / 0.5);
+            else s = 1.15 - 0.15 * ((t - 0.5) / 0.5);
+            comboText.scale.set(s * base);
+            if (t >= 1) {
+                comboText.scale.set(base);
+                comboTween = null;
+            }
+        } else {
+            const t = performance.now() / 700;
+            const s = base * (1 + Math.sin(t) * 0.05);
+            comboText.scale.set(s);
+        }
+    }
+
+    // Звезда и подсветка нового рекорда
+    if (recordStar && recordStar.visible) {
+        if (recordTween) {
+            const t = Math.min((performance.now() - recordTween.startTime) / recordTween.duration, 1);
+            const s = 0.5 + (1.15 - 0.5) * t;
+            recordStar.scale.set(s);
+            recordStar.alpha = t;
+            if (t >= 1) {
+                recordStar.scale.set(1);
+                recordStar.alpha = 1;
+                recordTween = null;
+            }
+        }
+        const pulse = 1 + Math.sin(performance.now() / 300) * 0.15;
+        recordStar.scale.set(pulse);
+
+        if (performance.now() < recordHighlightEnd) {
+            bestText.style.fill = 0xFFD54F;
+        } else {
+            bestText.style.fill = 0xffffff;
+            recordStar.visible = false;
         }
     }
 }
@@ -496,11 +627,18 @@ export function drawUI() {
     targetDisplayScore = getTotalScore();
     bestText.text = 'Рекорд: ' + getBestScore();
 
+    if (recordStar && recordStar.visible) {
+        const l = getLayout();
+        recordStar.x = bestText.x + bestText.width + l.cellSize * 0.12;
+        recordStar.y = bestText.y;
+    }
+
     const combo = getComboLines();
     let label = '';
     if (combo === 2) label = 'КОМБО';
     else if (combo >= 3) {
-        const reward = SPECIAL_REWARDS[combo - 3];
+        const idx = Math.min(combo - 3, SPECIAL_REWARDS.length - 1);
+        const reward = SPECIAL_REWARDS[idx];
         if (reward) label = reward.name;
     }
 
@@ -508,10 +646,15 @@ export function drawUI() {
         if (label === '') {
             comboText.visible = false;
             comboLabel = '';
+            comboText._fitScale = 1;
         } else if (label !== comboLabel) {
             comboLabel = label;
             comboText.text = label;
             comboText.visible = true;
+            const maxW = comboText._maxWidth || 200;
+            const fit = comboText.width > maxW ? maxW / comboText.width : 1;
+            comboText._fitScale = fit;
+            comboText.scale.set(fit);
             comboTween = { startTime: performance.now(), duration: 250 };
         }
     }

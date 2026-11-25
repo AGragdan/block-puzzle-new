@@ -98,7 +98,6 @@ export function wouldClearLines(shape, col, row) {
     return result;
 }
 
-// Может ли фигура закрыть хотя бы одну линию на текущем поле (в любой позиции)
 export function shapeCanClearLine(shape) {
     if (!shape || shape.isHammer) return false;
     for (let r = 0; r < BOARD_SIZE; r++) {
@@ -161,6 +160,8 @@ export function canPlaceAnywhere(shape) {
 let totalScore = 0;
 let bestScore = 0;
 let comboLines = 0;
+let sessionStartBest = 0;
+let recordNotified = false;
 
 export function getTotalScore() { return totalScore; }
 export function getBestScore() { return bestScore; }
@@ -171,6 +172,8 @@ export function loadBestScore() {
     if (saved) {
         bestScore = parseInt(saved, 10) || 0;
     }
+    sessionStartBest = bestScore;
+    recordNotified = false;
 }
 
 function saveBestScore() {
@@ -178,14 +181,16 @@ function saveBestScore() {
 }
 
 export const SPECIAL_REWARDS = [
-    { name: 'СУПЕР',    points: 100 },    // comboLines = 3
-    { name: 'МЕГА',     points: 200 },    // comboLines = 4
-    { name: 'УЛЬТРА',   points: 500 },    // comboLines = 5
-    { name: 'ХИТ',      points: 1000 },   // comboLines = 6
-    { name: 'ПЕРФЕКТО', points: 3000 },   // comboLines = 7
-    { name: 'УЛЬТИМА',  points: 5000 },   // comboLines = 8
-    { name: 'РЕКОРД',   points: 10000 },  // comboLines = 9
-    { name: 'ТАНОС',    points: 50000 },  // comboLines = 10+
+    { name: 'СУПЕР',    points: 100 },
+    { name: 'МЕГА',     points: 200 },
+    { name: 'УЛЬТРА',   points: 300 },
+    { name: 'ХИТ',      points: 500 },
+    { name: 'ПЕРФЕКТО', points: 1000 },
+    { name: 'УЛЬТИМА',  points: 3000 },
+    { name: 'РЕКОРД',   points: 5000 },
+    { name: 'ЭПИК',     points: 10000 },
+    { name: 'ЛЕГЕНД',   points: 30000 },
+    { name: 'ТОП',      points: 50000 },
 ];
 
 export function awardPoints(cellsToPlace, linesCleared, removedCount) {
@@ -206,29 +211,32 @@ export function awardPoints(cellsToPlace, linesCleared, removedCount) {
         comboLines += linesCleared;
         multiplier = 1 + comboLines;
         comboActive = true;
-        
+
         comboText = comboLines === linesCleared ? 'ЛИНИЯ' : 'КОМБО';
         bonusPoints = 10 * (comboLines - 1);
 
         if (comboLines >= 3) {
-            const index = comboLines;
-            const reward = SPECIAL_REWARDS[index - 3];
+            const index = Math.min(comboLines - 3, SPECIAL_REWARDS.length - 1);
+            const reward = SPECIAL_REWARDS[index];
             specialActive = true;
             specialText = reward.name;
             specialPoints = reward.points;
-            console.log(reward.points);
-            
         }
     } else {
         comboLines = 0;
     }
 
-    const gained = base * multiplier + bonusPoints + specialPoints; // <-- ВОТ ЗДЕСЬ
+    const gained = base * multiplier + bonusPoints + specialPoints;
 
     totalScore += gained;
+    let newRecord = false;
     if (totalScore > bestScore) {
         bestScore = totalScore;
         saveBestScore();
+    }
+    if (!recordNotified && sessionStartBest > 0 && totalScore > sessionStartBest) {
+        recordNotified = true;
+        newRecord = true;
     }
 
     return {
@@ -245,6 +253,7 @@ export function awardPoints(cellsToPlace, linesCleared, removedCount) {
         scoredCells,
         totalScore,
         bestScore,
+        newRecord,
     };
 }
 
@@ -294,29 +303,26 @@ export function resetGame() {
     comboLines = 0;
     hasHammer = false;
     initBoard();
+    sessionStartBest = bestScore;
+    recordNotified = false;
 }
 
 // ---------------- СПАСЕНИЕ ИГРЫ ----------------
 export function findRescueCells(queue) {
-    // 1. Собираем фигуры из очереди (без молотка)
     const shapes = queue.filter(s => !s.isHammer);
     if (shapes.length === 0) return [];
 
-    // 2. Создаём "виртуальное" пустое поле
     const tempGrid = [];
     for (let r = 0; r < BOARD_SIZE; r++) {
         tempGrid.push(new Array(BOARD_SIZE).fill(0));
     }
 
-    // 3. Пытаемся разместить каждую фигуру на пустом поле
-    const placements = []; // { shape, col, row, cells: [{col, row}] }
+    const placements = [];
 
     for (const shape of shapes) {
         let placed = false;
 
-        // Пробуем много раз, чтобы найти место (на пустом поле всегда есть)
         for (let attempt = 0; attempt < 100 && !placed; attempt++) {
-            // Случайная позиция
             const maxC = BOARD_SIZE - Math.max(...shape.cells.map(c => c[0])) - 1;
             const maxR = BOARD_SIZE - Math.max(...shape.cells.map(c => c[1])) - 1;
             if (maxC < 0 || maxR < 0) continue;
@@ -324,7 +330,6 @@ export function findRescueCells(queue) {
             const col = Math.floor(Math.random() * (maxC + 1));
             const row = Math.floor(Math.random() * (maxR + 1));
 
-            // Проверяем, что все клетки свободны в tempGrid
             let canPlace = true;
             const cells = [];
             for (const [dc, dr] of shape.cells) {
@@ -342,7 +347,6 @@ export function findRescueCells(queue) {
             }
 
             if (canPlace) {
-                // Ставим фигуру на виртуальное поле
                 for (const cell of cells) {
                     tempGrid[cell.row][cell.col] = 1;
                 }
@@ -352,13 +356,10 @@ export function findRescueCells(queue) {
         }
 
         if (!placed) {
-            // Не смогли разместить (маловероятно на пустом поле)
             return [];
         }
     }
 
-    // 4. Теперь у нас есть placements — три фигуры на виртуальном поле.
-    //    Собираем все клетки, которые они занимают.
     const cellsToClear = new Set();
     for (const p of placements) {
         for (const cell of p.cells) {
@@ -366,13 +367,12 @@ export function findRescueCells(queue) {
         }
     }
 
-    // 5. Проходим по реальному полю и собираем клетки, которые надо очистить
     const rescued = [];
     for (const key of cellsToClear) {
         const [c, r] = key.split(',').map(Number);
         if (grid[r][c] !== 0) {
             rescued.push({ col: c, row: r, val: grid[r][c] });
-            grid[r][c] = 0; // Очищаем сразу
+            grid[r][c] = 0;
         }
     }
 

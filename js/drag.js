@@ -6,7 +6,7 @@ import { getCell, setCell, findFullLines, clearLines, awardPoints, wouldClearLin
 import { blockDie, floatText, addTextToQueue, flashCells, screenShake, screenFlash, burstParticles, shockwave } from './effects.js';
 import { getCurrentTheme } from './theme.js';
 import { EFFECTS } from './settings_effects/index.js';
-import { isGameOverVisible, animateHammerToPanel } from './ui.js';
+import { isGameOverVisible, animateHammerToPanel, showNewRecord } from './ui.js';
 import { playPlace, playLine, playCombo, playHammer } from './sound.js';
 
 let ghost = null;
@@ -429,8 +429,6 @@ export function initDrag(onPlaced) {
                 removedCount = removed.length;
             }
 
-            // awardPoints обновляет comboLines — важно сделать это ДО removeAt,
-            // чтобы добивка ленты увидела актуальный comboLines и включила подыгрывание
             const result = awardPoints(placedCells, lineCount, removedCount);
 
             if (lineCount > 0) {
@@ -493,7 +491,9 @@ export function initDrag(onPlaced) {
                         case 'ПЕРФЕКТО': specialColor = 0xFF4500; break;
                         case 'УЛЬТИМА':  specialColor = 0xFF1493; break;
                         case 'РЕКОРД':   specialColor = 0xFFFFFF; break;
-                        case 'ТАНОС':    specialColor = 0x9400D3; break;
+                        case 'ЭПИК':     specialColor = 0xFF00FF; break;
+                        case 'ЛЕГЕНД':   specialColor = 0xFFD700; break;
+                        case 'ТОП':      specialColor = 0x00FFFF; break;
                     }
 
                     addTextToQueue(
@@ -544,7 +544,11 @@ export function initDrag(onPlaced) {
                 }
             }
 
-            // Перенесено сюда: добивка ленты теперь видит обновлённый comboLines
+            // Уведомление о новом рекорде
+            if (result.newRecord) {
+                showNewRecord();
+            }
+
             removeAt(dragIndex);
 
             queueLayer.removeChild(ghost);

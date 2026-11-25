@@ -14,11 +14,62 @@
     user-select: none;
     -webkit-tap-highlight-color: transparent; /* Убирает серую вспышку при тапе */
 }
+
+#orientation-blocker {
+    display: none; /* Скрыт по умолчанию */
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(26, 26, 46, 0.95); /* Тёмный полупрозрачный фон, как у Game Over */
+    z-index: 9999; /* Поверх всего, включая canvas */
+    color: white;
+    font-family: 'Pacifico', sans-serif;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+#orientation-blocker.active {
+    display: flex; /* Показываем, когда нужно */
+}
+
+.rotate-message p {
+    margin: 10px 0;
+    font-size: 1.2rem;
+}
+
+.rotate-hint {
+    font-size: 0.9rem;
+    opacity: 0.7;
+}
+
+.rotate-icon {
+    font-size: 4rem;
+    margin-bottom: 20px;
+    animation: rotate-hint 2s infinite ease-in-out;
+}
+
+@keyframes rotate-hint {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(90deg); }
+}
+
     </style>
     <!-- Яндекс SDK (раскомментировать перед загрузкой на Яндекс) -->
 <!-- <script src="/sdk.js"></script> -->
 </head>
 <body>
     <script type="module" src="js/main.js"></script>
+    <div id="orientation-blocker">
+    <div class="rotate-message">
+        <div class="rotate-icon">📱</div>
+        <p>Пожалуйста, поверните устройство</p>
+        <p class="rotate-hint">Игра работает только в портретном режиме</p>
+    </div>
+</div>
 </body>
 </html>

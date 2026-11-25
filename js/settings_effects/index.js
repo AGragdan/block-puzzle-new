@@ -5,7 +5,9 @@ import { hitEffect } from './hit.js';
 import { perfectoEffect } from './perfecto.js';
 import { ultimaEffect } from './ultima.js';
 import { recordEffect } from './record.js';
-import { thanosEffect } from './thanos.js';
+import { epicEffect } from './epic.js';
+import { legendEffect } from './legend.js';
+import { topEffect } from './top.js';
 
 export const EFFECTS = {
     'СУПЕР': superEffect,
@@ -15,5 +17,7 @@ export const EFFECTS = {
     'ПЕРФЕКТО': perfectoEffect,
     'УЛЬТИМА': ultimaEffect,
     'РЕКОРД': recordEffect,
-    'ТАНОС': thanosEffect,
+    'ЭПИК': epicEffect,
+    'ЛЕГЕНД': legendEffect,
+    'ТОП': topEffect,
 };

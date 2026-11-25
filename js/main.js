@@ -21,6 +21,26 @@ import { getCurrentTheme } from './theme.js';
 import { initYSDK, gameReady, showRewardAd, showInterstitial } from './ysdk.js';
 import { initScene, checkIntroComplete } from './intro.js';
 
+// --- Блокировка альбомной ориентации ---
+const orientationBlocker = document.getElementById('orientation-blocker');
+
+function checkOrientation() {
+    if (!orientationBlocker) return;
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+    
+    if (isMobile && isLandscape) {
+        orientationBlocker.classList.add('active');
+    } else {
+        orientationBlocker.classList.remove('active');
+    }
+}
+
+// Проверяем сразу и подписываемся на изменения
+checkOrientation();
+window.addEventListener('resize', checkOrientation);
+window.addEventListener('orientationchange', checkOrientation);
+
 async function loadFont() {
     const font = new FontFace('Pacifico', 'url(fonts/russo_one.ttf)');
     document.fonts.add(font);
